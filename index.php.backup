@@ -1,0 +1,166 @@
+<?php
+require_once __DIR__ . '/includes/auth.php';
+require_login();
+require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/includes/functions.php';
+
+$pageTitle = 'Dashboard';
+
+$pendingAthleteChecks = $pdo->query("
+    SELECT COUNT(*) FROM access_logs WHERE identity_status IN ('Pending', 'Not Verified')
+")->fetchColumn();
+
+$pendingVisitorRequests = $pdo->query("
+    SELECT COUNT(*) FROM visitor_logs WHERE status = 'Pending'
+")->fetchColumn();
+
+$accessLogTotal = $pdo->query("SELECT COUNT(*) FROM access_logs")->fetchColumn();
+$visitorLogTotal = $pdo->query("SELECT COUNT(*) FROM visitor_logs")->fetchColumn();
+
+$recentPendingAthletes = $pdo->query("
+    SELECT al.id, al.card_id, al.scan_time, a.first_name, a.last_name, a.sport, al.identity_status
+    FROM access_logs al
+    LEFT JOIN athletes a ON a.id = al.athlete_id
+    WHERE al.identity_status IN ('Pending', 'Not Verified')
+    ORDER BY al.scan_time DESC
+    LIMIT 5
+")->fetchAll();
+
+$recentPendingVisitors = $pdo->query("
+    SELECT vl.id, v.full_name AS visitor_name, a.first_name AS athlete_first_name, a.last_name AS athlete_last_name, 
+           a.card_id, vl.status, vl.time_in
+    FROM visitor_logs vl
+    JOIN visitors v ON v.id = vl.visitor_id
+    JOIN athletes a ON a.id = vl.athlete_id
+    WHERE vl.status = 'Pending'
+    ORDER BY vl.time_in DESC
+    LIMIT 5
+")->fetchAll();
+
+$adminNotifications = get_notifications($pdo, 'admin', 0, 6);
+
+require_once __DIR__ . '/includes/header.php';
+?>
+<h4 class="mb-4"><i class="bi bi-speedometer2"></i> Admin Dashboard</h4>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card bg-blue">
+      <div class="d-flex justify-content-between">
+        <div><small>Pending Athlete Checks</small><h2><?= (int)$pendingAthleteChecks ?></h2></div>
+        <i class="bi bi-person-check fs-1 opacity-50"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card bg-orange">
+      <div class="d-flex justify-content-between">
+        <div><small>Pending Visitor Requests</small><h2><?= (int)$pendingVisitorRequests ?></h2></div>
+        <i class="bi bi-people fs-1 opacity-50"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card bg-green">
+      <div class="d-flex justify-content-between">
+        <div><small>Access Records</small><h2><?= (int)$accessLogTotal ?></h2></div>
+        <i class="bi bi-clipboard-data fs-1 opacity-50"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card bg-red">
+      <div class="d-flex justify-content-between">
+        <div><small>Visitor Records</small><h2><?= (int)$visitorLogTotal ?></h2></div>
+        <i class="bi bi-file-earmark-text fs-1 opacity-50"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0"><i class="bi bi-person-check"></i> Pending Athlete Verification</h6>
+        <a href="verification_requests.php" class="small">Manage &rarr;</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Card ID</th><th>Athlete</th><th>Status</th><th>Time</th></tr></thead>
+          <tbody>
+          <?php if (!$recentPendingAthletes): ?>
+            <tr><td colspan="4" class="text-center text-muted">No athlete verification requests.</td></tr>
+          <?php endif; ?>
+          <?php foreach ($recentPendingAthletes as $log): ?>
+            <tr>
+              <td><?= h($log['card_id']) ?></td>
+              <td><?= h(trim(($log['first_name'] ?? '') . ' ' . ($log['last_name'] ?? '')) ?: 'Unknown') ?></td>
+              <td><span class="badge <?= $log['identity_status']==='Not Verified' ? 'badge-invalid' : 'badge-pending' ?>"><?= h($log['identity_status']) ?></span></td>
+              <td class="small text-muted"><?= format_datetime($log['scan_time']) ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0"><i class="bi bi-people"></i> Pending Visitor Requests</h6>
+        <a href="verification_requests.php" class="small">Manage &rarr;</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Visitor</th><th>Athlete</th><th>Status</th><th>Time In</th></tr></thead>
+          <tbody>
+          <?php if (!$recentPendingVisitors): ?>
+            <tr><td colspan="4" class="text-center text-muted">No visitor requests pending.</td></tr>
+          <?php endif; ?>
+          <?php foreach ($recentPendingVisitors as $v): ?>
+            <tr>
+              <td><?= h($v['visitor_name']) ?></td>
+              <td><?= h(($v['athlete_first_name'] ?? '') . ' ' . ($v['athlete_last_name'] ?? '')) ?> <small class="text-muted d-block"><?= h($v['card_id']) ?></small></td>
+              <td><span class="badge badge-pending"><?= h($v['status']) ?></span></td>
+              <td class="small text-muted"><?= format_datetime($v['time_in']) ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-12">
+    <div class="card p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0"><i class="bi bi-bell"></i> Admin Notifications</h6>
+      </div>
+      <?php if (!$adminNotifications): ?>
+        <div class="text-center text-muted py-3">No recent admin notifications.</div>
+      <?php else: ?>
+        <div class="list-group list-group-flush">
+          <?php foreach ($adminNotifications as $note): ?>
+            <?php $badge = str_contains($note['title'], 'IN -') ? 'IN' : 'UP'; ?>
+            <div class="list-group-item px-0">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div>
+                  <span class="badge <?= $badge === 'IN' ? 'bg-primary-subtle text-primary' : 'bg-success-subtle text-success' ?> me-2"><?= h($badge) ?></span>
+                  <strong><?= h($note['title']) ?></strong>
+                  <div class="small text-muted mt-1"><?= h($note['message']) ?></div>
+                </div>
+                <small class="text-muted text-nowrap"><?= format_datetime($note['created_at']) ?></small>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
+
+<?php require_once __DIR__ . '/includes/footer.php'; ?>
